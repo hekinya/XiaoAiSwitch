@@ -1,13 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <queries>
-        <package android:name="com.miui.voiceassist" />
-        <package android:name="com.xiaomi.mibrain.speech" />
+        <package android:name="com.heytap.speechassist" />
     </queries>
     <application android:label="@string/app_name" android:theme="@style/AppTheme" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false" android:enableOnBackInvokedCallback="true" android:supportsRtl="true" android:usesCleartextTraffic="true">
         <meta-data android:name="xposedmodule" android:value="true" />
-        <meta-data android:name="xposeddescription" android:value="自定义小爱模型服务、模型名与 System Prompt" />
+        <meta-data android:name="xposeddescription" android:value="为 ColorOS 小布接入自定义文本模型服务" />
         <meta-data android:name="xposedminversion" android:value="82" />
         <meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
         <activity android:name=".SettingsActivity" android:exported="true">
@@ -17,7 +16,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".CodexLoginActivity" android:exported="false" />
-        <provider android:name=".ConfigProvider" android:authorities="io.github.xiaoaiswitch.config"
+        <provider android:name=".ConfigProvider" android:authorities="io.github.xiaobuiswitch.config"
             android:exported="true" />
     </application>
 </manifest>

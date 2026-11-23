@@ -131,7 +131,7 @@ internal fun ActivationCard(active: Boolean, version: String, onClick: () -> Uni
                         color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.testTag("activation_status"))
                     Text("v$version", fontSize = 14.sp, fontFamily = FontFamily.Monospace,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.testTag("app_version"))
-                    if (!active) Text("启用模块并重启小爱", fontSize = 13.sp, color = colors.content)
+                    if (!active) Text("启用模块并重启小布", fontSize = 13.sp, color = colors.content)
                 }
             }
         }

@@ -13,5 +13,5 @@ dependencyResolutionManagement {
         maven { url 'https://api.xposed.info/' }
     }
 }
-rootProject.name = 'XiaoAiSwitch'
+rootProject.name = 'XiaoBuSwitch'
 include ':core', ':app'

@@ -41,7 +41,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.xiaoaiswitch.core.SettingsConfig
@@ -75,8 +74,7 @@ class SettingsActivity : ComponentActivity() {
     }
 }
 
-private val routeNames = listOf("文本", "语音", "绘图", "控制", "识图")
-private val routeDescriptions = listOf("日常问答与多轮对话", "原厂识别与音色，自选语言模型", "订阅或 API 的图片生成与编辑", "通过屏幕与工具执行手机任务", "图片问答与拍照识别，独立使用视觉模型")
+private val routeDescriptions = listOf("日常问答与多轮对话，回复显示在小布原生对话卡片中")
 private val providerNames = listOf("API Key / OpenAI 兼容源", "Codex 订阅")
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -84,19 +82,15 @@ private val providerNames = listOf("API Key / OpenAI 兼容源", "Codex 订阅")
 private fun SettingsScreen() {
     val context = LocalContext.current
     val appName = stringResource(R.string.app_name)
-    val assistant = remember(context) { runCatching { context.packageManager.getPackageInfo("com.miui.voiceassist", 0) }.getOrNull() }
-    val assistantAdapter = assistant?.let { AssistantVersion.forCode(it.versionCode) }
-    val customControlSupported = assistantAdapter?.phoneControl() == true
-    val nativeMemorySupported = assistantAdapter?.nativeQuery() != null
+    val assistant = remember(context) { runCatching { context.packageManager.getPackageInfo("com.heytap.speechassist", 0) }.getOrNull() }
     val preferences = remember { context.getSharedPreferences("switch", 0) }
     val initial = remember { runCatching { AiProviders.normalize(JSONObject(preferences.getString("config", "{}") ?: "{}")).toString() }.getOrDefault("{}") }
     var draft by rememberSaveable { mutableStateOf(initial) }
     var saved by rememberSaveable { mutableStateOf(initial) }
     var selected by rememberSaveable { mutableStateOf(0) }
-    var thinking by rememberSaveable { mutableStateOf(false) }
     var page by rememberSaveable { mutableStateOf("home") }
     val config = remember(draft) { JSONObject(draft) }
-    val thinkingSelected = selected < 2 && thinking
+    val thinkingSelected = false
     val normalChannel = config.optJSONObject(SettingsConfig.ROUTES[selected]) ?: JSONObject()
     val channel = if (thinkingSelected) normalChannel.optJSONObject("thinking") ?: JSONObject() else normalChannel
     val providers = remember(draft) { AiProviders.entries(config) }
@@ -121,7 +115,7 @@ private fun SettingsScreen() {
     var seen by remember { mutableStateOf(preferences.getLong("seen", 0)) }
     var activeVersion by remember { mutableStateOf(preferences.getInt("activeVersion", 0)) }
     val active = activeVersion == BuildConfig.VERSION_CODE
-    val titles = listOf("文本对话", "语音对话", "绘图", "手机控制", "识图")
+    val titles = listOf("文本对话")
     fun parent(screen: String) = when (screen) {
         "home" -> null
         "provider_edit" -> "providers"
@@ -143,11 +137,6 @@ private fun SettingsScreen() {
         }
         preferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-
-    fun update(key: String, value: Any) {
-        draft = JSONObject(draft).put(key, value).toString()
-        message = null
     }
 
     fun updateChannel(index: Int, key: String, value: Any, mode: Boolean = thinkingSelected) {
@@ -236,26 +225,9 @@ private fun SettingsScreen() {
 
     val global: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(26.dp)) {
-            Section("运行方式") {
-                SwitchRow("自动分流", "对话可调用已启用的绘图与控制源", config.optBoolean("autoRoute", true), "auto_route_switch") { update("autoRoute", it) }
-                SwitchRow("系统工具", "文本和语音可打开应用、设置闹钟或倒计时，不依赖屏幕控制",
-                    config.optBoolean("systemTools", false), "system_tools_switch") { update("systemTools", it) }
-                if (nativeMemorySupported) {
-                    SwitchRow("原厂全局记忆", "明确的记忆命令交给小爱，不读取或发送原厂记忆给第三方模型",
-                        config.optBoolean("nativeMemory", true), "native_memory_switch") { update("nativeMemory", it) }
-                    ChoiceRow("原厂记忆设置", "在小爱里管理和同步", "native_memory_settings") {
-                        val intent = Intent().setClassName("com.miui.voiceassist", "com.xiaomi.voiceassistant.settings.MemorySettingActivity")
-                        runCatching { context.startActivity(intent) }.onFailure { notifySave("原厂记忆设置未打开", true) }
-                    }
-                }
-                ChoiceRow("普通输入默认通道", routeNames[SettingsConfig.ROUTES.indexOf(config.optString("defaultRoute", "chat")).coerceAtLeast(0)],
-                    "default_route") { chooser = "default" }
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Field("控制步骤上限", config.optString("controlSteps", "12"), "control_steps", keyboardType = KeyboardType.Number) { value ->
-                        update("controlSteps", value.toIntOrNull() ?: value)
-                    }
-                    Text("达到步数上限后自动停止（默认 12 步）；同一步的临时重试不算新步骤。", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
+            Section("适配范围") {
+                Text("当前版本针对 ColorOS 16.0.9.400（CN01）和小布 13.4.3（130403）适配。支持文本问答与多轮上下文，回答使用小布原生对话卡片。图片、手机控制和语音播报暂未接入。",
+                    fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
     }
@@ -263,19 +235,9 @@ private fun SettingsScreen() {
     val editor: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(26.dp)) {
             Section("模型配置") {
-                if (selected < 2) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton("默认模式", { focus.clearFocus(); thinking = false }, modifier = Modifier.weight(1f).testTag("mode_default"),
-                            minWidth = 0.dp, colors = if (!thinkingSelected) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
-                        TextButton("思考模式", { focus.clearFocus(); thinking = true }, modifier = Modifier.weight(1f).testTag("mode_thinking"),
-                            minWidth = 0.dp, colors = if (thinkingSelected) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
-                    }
-                    Text("此处分别配置，运行时跟随小爱原生模式切换。", fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
                 Text(routeDescriptions[selected], fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 SwitchRow(if (thinkingSelected) "单独配置思考模式" else "使用自定义服务",
-                    if (thinkingSelected) "关闭后沿用默认配置" else "仅影响${routeNames[selected]}通道${if (selected < 2) "的默认模式" else ""}", channel.optBoolean("enabled"), "channel_switch") {
+                    if (thinkingSelected) "关闭后沿用默认配置" else "仅接管小布文本问答", channel.optBoolean("enabled"), "channel_switch") {
                     updateChannel(selected, "enabled", it)
                 }
                 ChoiceRow("AI Provider", selectedProvider?.name() ?: "选择已添加的 Provider", "provider_selector") {
@@ -316,8 +278,6 @@ private fun SettingsScreen() {
                 Text(when (selected) {
                     2 -> if (subscription) "手机直连 Codex 原生绘图，使用订阅额度；支持文生图与原图编辑，无需另填 API Key。"
                         else "图片 API 使用 prompt 字段；修改原图时自动请求 images/edits。"
-                    3 -> if (customControlSupported) "控制模型需要支持图像与工具调用。" else "当前小爱版本使用原厂控制；此处的模型配置会保留。"
-                    4 -> "请选择支持图片输入的视觉模型。启用后，普通附图问答自动走本通道，绘图和图生图不受影响。"
                     else -> if (subscription) "系统指令映射到 Codex instructions；登录凭据仅保存在手机。" else "作为独立的 system 消息发送，不拼接到用户问题。"
                 }, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
@@ -383,18 +343,18 @@ private fun SettingsScreen() {
                                             "默认 ${if (profile.optBoolean("enabled")) profile.optString("model") else "原厂"} · 思考 ${thought.optString("model") }"
                                             else if (profile.optBoolean("enabled")) "$source · ${profile.optString("model")}" else "未启用"
                                         ChoiceRow(name, summary, "menu_${SettingsConfig.ROUTES[index]}") {
-                                            selected = index; thinking = false; page = "channel"; message = null
+                                            selected = index; page = "channel"; message = null
                                         }
                                     }
                                 }
                                 Section("设置") {
-                                    ChoiceRow("通用设置", "默认通道、系统工具与控制预算", "menu_general") { page = "general"; message = null }
+                                    ChoiceRow("适配范围", "当前支持的 ColorOS 与小布版本", "menu_general") { page = "general"; message = null }
                                     ChoiceRow("AI Provider", "${providers.size} 个 · 统一管理服务与登录", "menu_providers") {
                                         providerReturn = "home"; page = "providers"; message = null
                                     }
                                 }
                                 Section("项目与社区") {
-                                    ChoiceRow("开源仓库", "GitHub · SeimoDev/XiaoAiSwitch", "project_repository") {
+                                    ChoiceRow("上游项目", "基于 SeimoDev/XiaoAiSwitch v0.10.12", "project_repository") {
                                         openLink("https://github.com/SeimoDev/XiaoAiSwitch")
                                     }
                                     ChoiceRow("Telegram 频道", "t.me/xiaoaiswitch", "project_telegram") {
@@ -428,7 +388,7 @@ private fun SettingsScreen() {
                             }
                             "status" -> Section("Hook 状态") {
                                 Text("模块版本 · ${BuildConfig.VERSION_NAME}", modifier = Modifier.testTag("diagnostic_version"))
-                                Text("安装的小爱 · ${assistant?.versionName ?: "未安装"}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                Text("安装的小布 · ${assistant?.versionName ?: "未安装"}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                 SelectionContainer { Text(hook, fontSize = 14.sp, modifier = Modifier.testTag("hook_status")) }
                                 if (seen != 0L) Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(seen)),
                                     fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -445,9 +405,6 @@ private fun SettingsScreen() {
         }
     }
     when (chooser) {
-        "default" -> ChoiceDialog("普通输入默认通道", routeNames,
-            selected = routeNames[SettingsConfig.ROUTES.indexOf(config.optString("defaultRoute", "chat")).coerceAtLeast(0)],
-            onDismiss = { chooser = null }) { update("defaultRoute", SettingsConfig.ROUTES[routeNames.indexOf(it)]) }
         "provider" -> ChoiceDialog("选择 AI Provider", providers.map { it.name() }, selected = selectedProvider?.name(),
             onDismiss = { chooser = null }) {
                 val provider = providers.first { provider -> provider.name() == it }

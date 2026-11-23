@@ -10,7 +10,7 @@ import android.os.Bundle;
 import android.os.Process;
 
 public final class ConfigProvider extends ContentProvider {
-    public static final Uri URI = Uri.parse("content://io.github.xiaoaiswitch.config");
+    public static final Uri URI = Uri.parse("content://io.github.xiaobuiswitch.config");
 
     @Override public boolean onCreate() { return true; }
 
@@ -49,7 +49,7 @@ public final class ConfigProvider extends ContentProvider {
 
     private int targetUid() {
         try {
-            return getContext().getPackageManager().getApplicationInfo("com.miui.voiceassist", 0).uid;
+            return getContext().getPackageManager().getApplicationInfo("com.heytap.speechassist", 0).uid;
         } catch (PackageManager.NameNotFoundException error) {
             return -1;
         }

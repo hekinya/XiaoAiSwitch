@@ -1,5 +1,5 @@
 <resources>
     <string-array name="xposed_scope">
-        <item>com.miui.voiceassist</item>
+        <item>com.heytap.speechassist</item>
     </string-array>
 </resources>

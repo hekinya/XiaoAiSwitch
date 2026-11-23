@@ -1,5 +1,7 @@
 # 小爱 Switch
 
+> **此工作副本已改为 ColorOS 小布适配分支。** 请先看 [README_COLOROS.md](README_COLOROS.md) 获取适配范围、安装与构建说明。下方原说明描述的是上游小爱版，不能作为本分支的兼容性说明。
+
 <img src="assets/icon/xiaoai-switch-anime-original.png" width="112" height="112" alt="小爱 Switch 图标">
 
 [![开源协议：GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue?logo=gnu)](LICENSE)

@@ -360,7 +360,14 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                     historyRevision = revision;
                 }
                 JSONArray value = histories.get(roomId);
-                return value == null ? new JSONArray() : new JSONArray(value.toString());
+                if (value == null) return new JSONArray();
+                try {
+                    return new JSONArray(value.toString());
+                } catch (org.json.JSONException error) {
+                    XposedBridge.log("XiaoBuSwitch: history copy " + error.getClass().getSimpleName());
+                    histories.remove(roomId);
+                    return new JSONArray();
+                }
             }
         }
 

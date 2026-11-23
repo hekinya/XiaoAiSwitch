@@ -1,6 +1,6 @@
 # 小爱 Switch
 
-> **此工作副本已改为 ColorOS 小布适配分支。** 请先看 [README_COLOROS.md](README_COLOROS.md) 获取适配范围、安装与构建说明。下方原说明描述的是上游小爱版，不能作为本分支的兼容性说明。
+> **此工作副本已改为 ColorOS 小布适配分支。** 请先看 [README_COLOROS.md](README_COLOROS.md) 获取适配范围、实现状态、验证结果和后续接手说明。下方原说明描述的是上游小爱版，不能作为本分支的兼容性说明。
 
 <img src="assets/icon/xiaoai-switch-anime-original.png" width="112" height="112" alt="小爱 Switch 图标">
 
@@ -15,7 +15,7 @@
 
 自定义超级小爱的文本、语音、识图、绘图和手机控制模型。用一个 LSPosed 模块管理 AI Provider、模型与 System Prompt，结果仍在小爱的原生界面显示。
 
-[使用方法](#使用方法) · [从源码构建](#从源码构建) · [贡献指南](CONTRIBUTING.md) · [反馈问题](https://github.com/SeimoDev/XiaoAiSwitch/issues/new) · [Star 趋势](#star-趋势)
+[小布适配与接手说明](README_COLOROS.md) · [上游使用方法](#使用方法) · [从源码构建](#从源码构建) · [贡献指南](CONTRIBUTING.md) · [反馈问题](https://github.com/SeimoDev/XiaoAiSwitch/issues/new) · [Star 趋势](#star-趋势)
 
 ## 功能
 

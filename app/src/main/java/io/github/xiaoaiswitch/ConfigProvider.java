@@ -39,8 +39,8 @@ public final class ConfigProvider extends ContentProvider {
         }
         if ("status".equals(method) && arg != null) {
             android.content.SharedPreferences.Editor editor = getContext().getSharedPreferences("switch", 0).edit()
-                    .putString("status", arg).putLong("seen", System.currentTimeMillis());
-            if (extras != null && extras.containsKey("moduleVersion")) editor.putInt("activeVersion", extras.getInt("moduleVersion"));
+                    .putString("status", arg).putLong("seen", System.currentTimeMillis())
+                    .putInt("activeVersion", extras == null ? 0 : extras.getInt("moduleVersion", 0));
             editor.apply();
             return result;
         }

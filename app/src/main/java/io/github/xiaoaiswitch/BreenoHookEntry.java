@@ -58,8 +58,9 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                         report(context, "小布文本接口结构不匹配；保留原厂链路", false);
                         return;
                     }
+                    validateRuntimeShape(helper, load.classLoader);
                     new Runtime(context, load.classLoader).install(helper);
-                    report(context, "已接入小布 13.4.3；请在小布 Switch 中配置文本模型", true);
+                    report(context, "已加载小布 13.4.3 文本 Hook；请在小布 Switch 中配置文本模型", true);
                 } catch (Throwable error) {
                     report(context, "小布 Hook 安装失败：" + error.getClass().getSimpleName(), false);
                     XposedBridge.log("XiaoBuSwitch: install " + error.getClass().getSimpleName());
@@ -68,10 +69,54 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
         });
     }
 
+    private static void validateRuntimeShape(Class<?> helper, ClassLoader loader) throws Exception {
+        Class<?> answer = XposedHelpers.findClass(
+                "com.heytap.speechassist.aichat.bean.AIChatViewBean", loader);
+        helper.getDeclaredMethod("b", String.class, String.class, Bundle.class, boolean.class);
+        helper.getDeclaredMethod("d");
+        helper.getDeclaredMethod("t", boolean.class, String.class, answer, Boolean.class, boolean.class, String.class);
+
+        Class<?> room = XposedHelpers.findClass("com.heytap.speechassist.aichat.AIChatRoomIdManager", loader);
+        room.getDeclaredField("INSTANCE");
+        room.getDeclaredMethod("H");
+        Class<?> provider = XposedHelpers.findClass("com.heytap.speechassist.aichat.AIChatViewBeanProvider", loader);
+        provider.getDeclaredField("INSTANCE");
+        provider.getDeclaredMethod("f", String.class, String.class, String.class);
+        Class<?> dataCenter = XposedHelpers.findClass("com.heytap.speechassist.aichat.AIChatDataCenter", loader);
+        dataCenter.getDeclaredField("INSTANCE");
+        dataCenter.getDeclaredMethod("s", answer);
+
+        Class<?> state = XposedHelpers.findClass("com.heytap.speechassist.aichat.state.AiChatState", loader);
+        Class<?> subState = XposedHelpers.findClass("com.heytap.speechassist.aichat.state.AiChatSubState", loader);
+        Class<?> stateManager = XposedHelpers.findClass(
+                "com.heytap.speechassist.aichat.state.AiChatStateManager", loader);
+        stateManager.getDeclaredField("f26332g");
+        stateManager.getDeclaredMethod("h", state, boolean.class);
+        stateManager.getDeclaredMethod("E", subState);
+
+        Class<?> appContext = XposedHelpers.findClass("com.heytap.speechassist.utils.z2", loader);
+        appContext.getDeclaredMethod("b");
+        Class<?> preferences = XposedHelpers.findClass("com.heytap.speechassist.utils.z5", loader);
+        preferences.getDeclaredMethod("q", Context.class);
+        Class<?> common = XposedHelpers.findClass(
+                "com.heytap.speechassist.aichat.floatwindow.utils.AiChatCommonHelperKt", loader);
+        common.getDeclaredMethod("p", String.class, int.class, Object.class);
+        Class<?> duplex = XposedHelpers.findClass("com.heytap.speechassist.utils.FullDuplexState", loader);
+        duplex.getDeclaredField("INSTANCE");
+        duplex.getDeclaredMethod("n");
+        Class<?> modeManager = XposedHelpers.findClass("com.heytap.speechassist.core.w2", loader);
+        Class<?> modeState = modeManager.getDeclaredMethod("a").getReturnType();
+        modeState.getDeclaredMethod("S1");
+        Class<?> tts = XposedHelpers.findClass(
+                "com.heytap.speechassist.aichat.streamtts.AiChatTTSHighlightPlayManager", loader);
+        tts.getDeclaredField("INSTANCE");
+        tts.getDeclaredMethod("M");
+    }
+
     private static void report(Context context, String text, boolean ready) {
         try {
             Bundle extras = new Bundle();
-            if (ready) extras.putInt("moduleVersion", BuildConfig.VERSION_CODE);
+            extras.putInt("moduleVersion", ready ? BuildConfig.VERSION_CODE : 0);
             context.getContentResolver().call(ConfigProvider.URI, "status", text, extras);
         } catch (Throwable error) {
             XposedBridge.log("XiaoBuSwitch: status " + error.getClass().getSimpleName());
@@ -84,7 +129,7 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
         private final Handler main = new Handler(Looper.getMainLooper());
         private final ExecutorService worker = Executors.newFixedThreadPool(2);
         private final AtomicLong generation = new AtomicLong();
-        private final AtomicReference<ModelClient.Cancellation> active = new AtomicReference<>();
+        private final AtomicReference<ActiveRequest> active = new AtomicReference<>();
         private final Map<String, JSONArray> histories = new LinkedHashMap<>();
         private long historyRevision = Long.MIN_VALUE;
 
@@ -94,6 +139,14 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
         }
 
         void install(Class<?> helper) {
+            Class<?> answerBean = XposedHelpers.findClass(
+                    "com.heytap.speechassist.aichat.bean.AIChatViewBean", loader);
+            XposedHelpers.findAndHookMethod(helper, "t", boolean.class, String.class, answerBean,
+                    Boolean.class, boolean.class, String.class, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    cancelForNativeStop(param);
+                }
+            });
             XposedHelpers.findAndHookMethod(helper, "y", String.class, int.class, Bundle.class,
                     boolean.class, boolean.class, new XC_MethodHook() {
                         @Override protected void beforeHookedMethod(MethodHookParam param) {
@@ -103,11 +156,23 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
         }
 
         private void intercept(XC_MethodHook.MethodHookParam param) {
+            boolean intercepted = false;
+            long requestId = -1L;
+            String roomId = "";
+            String recordId = "";
+            ActiveRequest requestState = null;
             try {
                 String text = (String) param.args[0];
                 Bundle bundle = param.args[2] instanceof Bundle ? (Bundle) param.args[2] : null;
+                Bundle bubbleBundle = bundle == null ? new Bundle() : new Bundle(bundle);
                 boolean addQuery = Boolean.TRUE.equals(param.args[3]);
-                if (text == null || text.trim().isEmpty() || !addQuery) return;
+                // The normal typed composer calls y(..., addQuery=true, stateFlag=false).
+                boolean ordinaryTextInput = Boolean.FALSE.equals(param.args[4]);
+                if (text == null || text.trim().isEmpty() || !addQuery || !ordinaryTextInput) return;
+                if (bundle != null) {
+                    String boxTool = bundle.getString("extra_box_toolTag");
+                    if (boxTool != null && !boxTool.isBlank()) return;
+                }
 
                 JSONObject config = config();
                 if (!config.optBoolean("enabled", false)) return;
@@ -115,32 +180,89 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                 if (!profile.enabled()) return;
                 if (!nativeGuardsAllow(param.thisObject)) return;
 
-                String roomId = currentRoom();
+                roomId = currentRoom();
                 if (roomId.isEmpty()) return;
-                String suppliedRecordId = bundle == null ? null : bundle.getString(RECORD_ID_KEY);
-                final String recordId = suppliedRecordId == null || suppliedRecordId.isEmpty()
+                String suppliedRecordId = bubbleBundle.getString(RECORD_ID_KEY);
+                recordId = suppliedRecordId == null || suppliedRecordId.isEmpty()
                         ? UUID.randomUUID().toString() : suppliedRecordId;
-
-                // Reuse Breeno's query bubble and generating state before suppressing its server request.
-                XposedHelpers.callMethod(param.thisObject, "b", text, recordId, bundle,
-                        Boolean.TRUE.equals(param.args[4]));
-                param.setResult(null);
+                if (suppliedRecordId == null || suppliedRecordId.isEmpty()) {
+                    bubbleBundle.putString(RECORD_ID_KEY, recordId);
+                }
 
                 long revision = config.optLong("revision", 0L);
                 JSONArray history = history(roomId, revision);
                 JSONObject request = ChatProtocol.request(profile, history, text);
-                long requestId = generation.incrementAndGet();
+                requestId = generation.incrementAndGet();
                 ModelClient.Cancellation cancellation = new ModelClient.Cancellation();
-                ModelClient.Cancellation previous = active.getAndSet(cancellation);
-                if (previous != null) previous.cancel();
+                requestState = new ActiveRequest(roomId, cancellation);
+                ActiveRequest previous = active.getAndSet(requestState);
+                if (previous != null) previous.cancellation.cancel();
+
+                // Reuse Breeno's query bubble and generating state before suppressing its server request.
+                XposedHelpers.callMethod(param.thisObject, "b", text, recordId, bubbleBundle,
+                        Boolean.TRUE.equals(param.args[4]));
+                param.setResult(null);
+                intercepted = true;
+                stopNativeTts();
+
                 try {
-                    worker.execute(() -> ask(requestId, revision, roomId, recordId, profile, request, cancellation));
+                    final long currentRequestId = requestId;
+                    final String currentRoomId = roomId;
+                    final String currentRecordId = recordId;
+                    final ActiveRequest currentRequest = requestState;
+                    worker.execute(() -> ask(currentRequestId, revision, currentRoomId, currentRecordId,
+                            profile, request, currentRequest));
                 } catch (RuntimeException rejected) {
-                    active.compareAndSet(cancellation, null);
+                    active.compareAndSet(requestState, null);
                     showAnswer(requestId, roomId, recordId, "模型请求无法启动，请稍后重试。", false, null, null);
                 }
             } catch (Throwable error) {
+                if (requestState != null) {
+                    active.compareAndSet(requestState, null);
+                    requestState.cancellation.cancel();
+                }
+                if (intercepted) {
+                    showAnswer(requestId, roomId, recordId,
+                            "模型请求失败：" + errorText(error), false, null, null);
+                }
                 XposedBridge.log("XiaoBuSwitch: request " + error.getClass().getSimpleName());
+            }
+        }
+
+        private void cancelForNativeStop(XC_MethodHook.MethodHookParam param) {
+            ActiveRequest running = active.get();
+            if (running == null) return;
+            try {
+                Object bean = param.args[2];
+                Object roomValue = bean == null ? null : XposedHelpers.callMethod(bean, "getRoomId");
+                String room = roomValue instanceof String && !((String) roomValue).isEmpty()
+                        ? (String) roomValue : currentRoom();
+                // The stop path may not carry the request's customized ID, so scope it by active room.
+                if (!running.roomId.equals(room)) return;
+                if (active.compareAndSet(running, null)) {
+                    generation.incrementAndGet();
+                    running.cancellation.cancel();
+                }
+            } catch (Throwable error) {
+                XposedBridge.log("XiaoBuSwitch: stop " + error.getClass().getSimpleName());
+            }
+        }
+
+        private static String errorText(Throwable error) {
+            String reason = error.getMessage();
+            if (reason == null || reason.isBlank()) reason = "网络或模型服务异常";
+            reason = reason.replace('\n', ' ').replace('\r', ' ');
+            return reason.length() > 100 ? reason.substring(0, 100) : reason;
+        }
+
+        private void stopNativeTts() {
+            try {
+                Class<?> type = XposedHelpers.findClass(
+                        "com.heytap.speechassist.aichat.streamtts.AiChatTTSHighlightPlayManager", loader);
+                Object manager = XposedHelpers.getStaticObjectField(type, "INSTANCE");
+                XposedHelpers.callMethod(manager, "M");
+            } catch (Throwable error) {
+                XposedBridge.log("XiaoBuSwitch: stop TTS " + error.getClass().getSimpleName());
             }
         }
 
@@ -168,6 +290,11 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                 Class<?> duplexClass = XposedHelpers.findClass("com.heytap.speechassist.utils.FullDuplexState", loader);
                 Object duplex = XposedHelpers.getStaticObjectField(duplexClass, "INSTANCE");
                 if (Boolean.TRUE.equals(XposedHelpers.callMethod(duplex, "n"))) return false;
+
+                Class<?> modeManagerClass = XposedHelpers.findClass("com.heytap.speechassist.core.w2", loader);
+                Object modeManager = XposedHelpers.callStaticMethod(modeManagerClass, "a");
+                int mode = ((Number) XposedHelpers.callMethod(modeManager, "S1")).intValue();
+                if (mode == 15 || mode == 16 || mode == 21 || mode == 22) return false;
                 return !Boolean.TRUE.equals(XposedHelpers.callMethod(engine, "d"));
             } catch (Throwable error) {
                 XposedBridge.log("XiaoBuSwitch: native guard " + error.getClass().getSimpleName());
@@ -176,9 +303,9 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
         }
 
         private void ask(long requestId, long revision, String roomId, String recordId, Profile profile,
-                         JSONObject request, ModelClient.Cancellation cancellation) {
+                         JSONObject request, ActiveRequest requestState) {
             try {
-                JSONObject response = chat(profile, request, cancellation);
+                JSONObject response = chat(profile, request, requestState.cancellation);
                 String answer = ChatProtocol.answer(response);
                 if (!isCurrent(requestId, revision)) {
                     resetIfLatest(requestId, roomId);
@@ -192,13 +319,9 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                     resetIfLatest(requestId, roomId);
                     return;
                 }
-                String reason = error.getMessage();
-                if (reason == null || reason.isBlank()) reason = "网络或模型服务异常";
-                reason = reason.replace('\n', ' ').replace('\r', ' ');
-                if (reason.length() > 100) reason = reason.substring(0, 100);
-                showAnswer(requestId, roomId, recordId, "模型请求失败：" + reason, false, null, null);
+                showAnswer(requestId, roomId, recordId, "模型请求失败：" + errorText(error), false, null, null);
             } finally {
-                active.compareAndSet(cancellation, null);
+                active.compareAndSet(requestState, null);
             }
         }
 
@@ -308,6 +431,16 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                 XposedHelpers.callMethod(manager, "h", idle, false);
             } catch (Throwable error) {
                 XposedBridge.log("XiaoBuSwitch: state " + error.getClass().getSimpleName());
+            }
+        }
+
+        private static final class ActiveRequest {
+            final String roomId;
+            final ModelClient.Cancellation cancellation;
+
+            ActiveRequest(String roomId, ModelClient.Cancellation cancellation) {
+                this.roomId = roomId;
+                this.cancellation = cancellation;
             }
         }
     }

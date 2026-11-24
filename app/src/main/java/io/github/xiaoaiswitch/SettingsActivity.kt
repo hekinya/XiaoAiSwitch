@@ -295,7 +295,7 @@ private fun SettingsScreen() {
                         if (draft != saved) TextButton("保存", { save() }, modifier = Modifier.testTag("home_save"))
                     })
                 } else {
-                    SmallTopAppBar(title = when (screen) { "channel" -> titles[selected]; "general" -> "通用设置"; "providers" -> "AI Provider";
+                    SmallTopAppBar(title = when (screen) { "channel" -> titles[selected]; "general" -> "适配范围"; "providers" -> "AI Provider";
                         "provider_edit" -> if (providers.any { it.id() == editingProvider }) "编辑 Provider" else "添加 Provider"; else -> "运行状态" },
                         modifier = Modifier.widthIn(max = 768.dp).fillMaxWidth(),
                         navigationIcon = { BackButton("settings_back", ::back) })
@@ -303,7 +303,7 @@ private fun SettingsScreen() {
                 }
             },
             bottomBar = {
-                if (screen == "channel" || screen == "general" || screen == "provider_edit") {
+                if (screen == "channel" || screen == "provider_edit") {
                     Box(modifier = Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface).imePadding(), contentAlignment = Alignment.Center) {
                         Column(modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)) {

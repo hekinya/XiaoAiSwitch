@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
@@ -33,12 +34,23 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
     private static final String TARGET_PACKAGE = "com.heytap.speechassist";
     private static final int TARGET_VERSION = 130403;
     private static final String RECORD_ID_KEY = "customized_record_id";
+    private static final String STATE_MANAGER_COMPANION_FIELD = "g";
+    private static final AtomicBoolean INSTALLED = new AtomicBoolean();
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam load) {
-        if (!TARGET_PACKAGE.equals(load.packageName)) return;
+        if (!TARGET_PACKAGE.equals(load.packageName) || !TARGET_PACKAGE.equals(load.processName)) return;
         XposedHelpers.findAndHookMethod(Application.class, "attach", Context.class, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
-                Context context = ((Context) param.args[0]).getApplicationContext();
+                if (!INSTALLED.compareAndSet(false, true)) return;
+                Context base = (Context) param.args[0];
+                Context context = base == null ? null : (base.getApplicationContext() != null ? base.getApplicationContext() : base);
+                if (context == null && param.thisObject instanceof Context) {
+                    context = (Context) param.thisObject;
+                }
+                if (context == null) {
+                    XposedBridge.log("XiaoBuSwitch: install null context");
+                    return;
+                }
                 try {
                     PackageInfo info = context.getPackageManager().getPackageInfo(TARGET_PACKAGE, 0);
                     if (info.versionCode != TARGET_VERSION) {
@@ -63,7 +75,7 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                     report(context, "已加载小布 13.4.3 文本 Hook；请在小布 Switch 中配置文本模型", true);
                 } catch (Throwable error) {
                     report(context, "小布 Hook 安装失败：" + error.getClass().getSimpleName(), false);
-                    XposedBridge.log("XiaoBuSwitch: install " + error.getClass().getSimpleName());
+                    XposedBridge.log("XiaoBuSwitch: install " + error);
                 }
             }
         });
@@ -90,7 +102,8 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
         Class<?> subState = XposedHelpers.findClass("com.heytap.speechassist.aichat.state.AiChatSubState", loader);
         Class<?> stateManager = XposedHelpers.findClass(
                 "com.heytap.speechassist.aichat.state.AiChatStateManager", loader);
-        stateManager.getDeclaredField("f26332g");
+        Class<?> stateManagerCompanion = stateManager.getDeclaredField(STATE_MANAGER_COMPANION_FIELD).getType();
+        stateManagerCompanion.getDeclaredMethod("a");
         stateManager.getDeclaredMethod("h", state, boolean.class);
         stateManager.getDeclaredMethod("E", subState);
 
@@ -119,7 +132,7 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
             extras.putInt("moduleVersion", ready ? BuildConfig.VERSION_CODE : 0);
             context.getContentResolver().call(ConfigProvider.URI, "status", text, extras);
         } catch (Throwable error) {
-            XposedBridge.log("XiaoBuSwitch: status " + error.getClass().getSimpleName());
+            XposedBridge.log("XiaoBuSwitch: status " + error);
         }
     }
 
@@ -166,27 +179,46 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                 Bundle bundle = param.args[2] instanceof Bundle ? (Bundle) param.args[2] : null;
                 Bundle bubbleBundle = bundle == null ? new Bundle() : new Bundle(bundle);
                 boolean addQuery = Boolean.TRUE.equals(param.args[3]);
-                // The normal typed composer calls y(..., addQuery=true, stateFlag=false).
-                boolean ordinaryTextInput = Boolean.FALSE.equals(param.args[4]);
-                if (text == null || text.trim().isEmpty() || !addQuery || !ordinaryTextInput) return;
-                if (bundle != null) {
-                    String boxTool = bundle.getString("extra_box_toolTag");
-                    if (boxTool != null && !boxTool.isBlank()) return;
+                String boxTool = bundle == null ? null : bundle.getString("extra_box_toolTag");
+                XposedBridge.log("XiaoBuSwitch: y called len=" + (text == null ? -1 : text.length())
+                        + " inputType=" + param.args[1] + " addQuery=" + param.args[3]
+                        + " stateFlag=" + param.args[4] + " boxTool=" + boxTool);
+                if (text == null || text.trim().isEmpty() || !addQuery) {
+                    XposedBridge.log("XiaoBuSwitch: skip input flags");
+                    return;
+                }
+                if (boxTool != null && !boxTool.isBlank()) {
+                    XposedBridge.log("XiaoBuSwitch: skip boxTool=" + boxTool);
+                    return;
                 }
 
                 JSONObject config = config();
-                if (!config.optBoolean("enabled", false)) return;
+                if (!config.optBoolean("enabled", false)) {
+                    XposedBridge.log("XiaoBuSwitch: skip master disabled");
+                    return;
+                }
                 Profile profile = ModeProfiles.resolve(config, "chat", false);
-                if (!profile.enabled()) return;
+                if (!profile.enabled()) {
+                    XposedBridge.log("XiaoBuSwitch: skip chat disabled");
+                    return;
+                }
                 if (!nativeGuardsAllow(param.thisObject)) return;
 
                 roomId = currentRoom();
-                if (roomId.isEmpty()) return;
+                if (roomId.isEmpty()) {
+                    XposedBridge.log("XiaoBuSwitch: skip empty roomId");
+                    return;
+                }
+                XposedBridge.log("XiaoBuSwitch: intercepting provider=" + profile.provider() + " model=" + profile.model());
                 String suppliedRecordId = bubbleBundle.getString(RECORD_ID_KEY);
                 recordId = suppliedRecordId == null || suppliedRecordId.isEmpty()
                         ? UUID.randomUUID().toString() : suppliedRecordId;
                 if (suppliedRecordId == null || suppliedRecordId.isEmpty()) {
                     bubbleBundle.putString(RECORD_ID_KEY, recordId);
+                }
+                bubbleBundle.putBoolean("speech_in_aichat_room_flag", true);
+                if (param.args[1] instanceof Integer) {
+                    bubbleBundle.putInt("input_type", (Integer) param.args[1]);
                 }
 
                 long revision = config.optLong("revision", 0L);
@@ -269,35 +301,55 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
         private boolean nativeGuardsAllow(Object engine) {
             try {
                 Class<?> appContext = XposedHelpers.findClass("com.heytap.speechassist.utils.z2", loader);
-                Object context = XposedHelpers.callStaticMethod(appContext, "b");
+                Object ctx = XposedHelpers.callStaticMethod(appContext, "b");
+                if (ctx == null) ctx = this.context;
                 Class<?> preferences = XposedHelpers.findClass("com.heytap.speechassist.utils.z5", loader);
-                if (!Boolean.TRUE.equals(XposedHelpers.callStaticMethod(preferences, "q", context))) return false;
+                if (!Boolean.TRUE.equals(XposedHelpers.callStaticMethod(preferences, "q", new Class<?>[]{Context.class}, ctx))) {
+                    XposedBridge.log("XiaoBuSwitch: guard blocked by z5.q");
+                    return false;
+                }
 
                 Class<?> common = XposedHelpers.findClass(
                         "com.heytap.speechassist.aichat.floatwindow.utils.AiChatCommonHelperKt", loader);
-                if (Boolean.TRUE.equals(XposedHelpers.callStaticMethod(common, "p", null, 1, null))) return false;
+                if (Boolean.TRUE.equals(XposedHelpers.callStaticMethod(
+                        common, "p", new Class<?>[]{String.class, int.class, Object.class}, null, 1, null))) {
+                    XposedBridge.log("XiaoBuSwitch: guard blocked by common.p");
+                    return false;
+                }
 
                 Class<?> stateManagerClass = XposedHelpers.findClass(
                         "com.heytap.speechassist.aichat.state.AiChatStateManager", loader);
-                Object companion = XposedHelpers.getStaticObjectField(stateManagerClass, "f26332g");
+                Object companion = XposedHelpers.getStaticObjectField(stateManagerClass, STATE_MANAGER_COMPANION_FIELD);
                 Object stateManager = XposedHelpers.callMethod(companion, "a");
                 Class<?> subStateClass = XposedHelpers.findClass(
                         "com.heytap.speechassist.aichat.state.AiChatSubState", loader);
                 @SuppressWarnings({"unchecked", "rawtypes"})
                 Object dailyLimit = Enum.valueOf((Class<? extends Enum>) subStateClass.asSubclass(Enum.class), "DIALOG_LIMIT_TODAY");
-                if (Boolean.TRUE.equals(XposedHelpers.callMethod(stateManager, "E", dailyLimit))) return false;
+                if (Boolean.TRUE.equals(XposedHelpers.callMethod(stateManager, "E", dailyLimit))) {
+                    XposedBridge.log("XiaoBuSwitch: guard blocked by DIALOG_LIMIT_TODAY");
+                    return false;
+                }
 
                 Class<?> duplexClass = XposedHelpers.findClass("com.heytap.speechassist.utils.FullDuplexState", loader);
                 Object duplex = XposedHelpers.getStaticObjectField(duplexClass, "INSTANCE");
-                if (Boolean.TRUE.equals(XposedHelpers.callMethod(duplex, "n"))) return false;
+                if (Boolean.TRUE.equals(XposedHelpers.callMethod(duplex, "n"))) {
+                    XposedBridge.log("XiaoBuSwitch: guard blocked by FullDuplexState.n");
+                    return false;
+                }
 
                 Class<?> modeManagerClass = XposedHelpers.findClass("com.heytap.speechassist.core.w2", loader);
                 Object modeManager = XposedHelpers.callStaticMethod(modeManagerClass, "a");
                 int mode = ((Number) XposedHelpers.callMethod(modeManager, "S1")).intValue();
-                if (mode == 15 || mode == 16 || mode == 21 || mode == 22) return false;
-                return !Boolean.TRUE.equals(XposedHelpers.callMethod(engine, "d"));
+                if (mode == 15 || mode == 16 || mode == 21 || mode == 22) {
+                    XposedBridge.log("XiaoBuSwitch: guard blocked by mode=" + mode);
+                    return false;
+                }
+                boolean engineD = Boolean.TRUE.equals(XposedHelpers.callMethod(engine, "d"));
+                if (engineD) XposedBridge.log("XiaoBuSwitch: guard blocked by engine.d");
+                return !engineD;
             } catch (Throwable error) {
                 XposedBridge.log("XiaoBuSwitch: native guard " + error.getClass().getSimpleName());
+                XposedBridge.log(error);
                 return false;
             }
         }
@@ -307,6 +359,7 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
             try {
                 JSONObject response = chat(profile, request, requestState.cancellation);
                 String answer = ChatProtocol.answer(response);
+                XposedBridge.log("XiaoBuSwitch: answer received len=" + (answer == null ? -1 : answer.length()));
                 if (!isCurrent(requestId, revision)) {
                     resetIfLatest(requestId, roomId);
                     return;
@@ -315,6 +368,7 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
             } catch (java.util.concurrent.CancellationException ignored) {
                 // A newer question or a settings change superseded this request.
             } catch (Throwable error) {
+                XposedBridge.log("XiaoBuSwitch: ask failed " + error.getClass().getSimpleName() + ": " + errorText(error));
                 if (!isCurrent(requestId, revision)) {
                     resetIfLatest(requestId, roomId);
                     return;
@@ -429,7 +483,7 @@ public final class BreenoHookEntry implements IXposedHookLoadPackage {
                 if (!roomId.equals(currentRoom())) return;
                 Class<?> stateManagerClass = XposedHelpers.findClass(
                         "com.heytap.speechassist.aichat.state.AiChatStateManager", loader);
-                Object companion = XposedHelpers.getStaticObjectField(stateManagerClass, "f26332g");
+                Object companion = XposedHelpers.getStaticObjectField(stateManagerClass, STATE_MANAGER_COMPANION_FIELD);
                 Object manager = XposedHelpers.callMethod(companion, "a");
                 Class<?> stateClass = XposedHelpers.findClass(
                         "com.heytap.speechassist.aichat.state.AiChatState", loader);

@@ -1,48 +1,73 @@
 # 小布 Switch（ColorOS 适配版）
 
-本文记录当前分支的适配范围和交接状态。仓库根目录 `README.md` 下方保留了上游小爱版说明；涉及 ColorOS 小布的包名、功能和验证情况时，以本文为准。
+基于上游 [SeimoDev/XiaoAiSwitch](https://github.com/SeimoDev/XiaoAiSwitch)（`v0.10.12`）二次开发的 ColorOS 小布助手（Breeno）LSPosed 模块，用于在**小布原生对话界面**接入自定义文本模型。
 
-## 分支与目标环境
+- 本仓库为独立适配分支（`coloros-xiaobu`），延续上游 [GPL-3.0-only](LICENSE) 开源协议。
+- 根目录 [README.md](README.md) 保留了上游小爱版说明；涉及 ColorOS 小布的包名、功能边界、构建和真机验证情况时，请以本文为准。
 
-- 仓库：[`hekinya/XiaoAiSwitch`](https://github.com/hekinya/XiaoAiSwitch)
-- 工作分支：`coloros-xiaobu`，从上游 `dev` 分支派生
-- 适配基线：上游 [`v0.10.12`](https://github.com/SeimoDev/XiaoAiSwitch/releases/tag/v0.10.12)；派生时 `dev` 与该版本提交一致
-- 目标设备信息：用户提供的截图显示 ColorOS `16.0.9.400(CN01)`、Android 16；Breeno 包名 `com.heytap.speechassist`，版本 `13.4.3(130403)`
+## 当前功能
 
-这些是目标设备和 APK 的版本信息，不代表适配已在真机验证通过。
+- **自定义文本模型接入**：支持 OpenAI 兼容 API（自定义 Endpoint / API Key / 模型名 / System Prompt）以及手机端直连 Codex 订阅。
+- **复用小布原生 UI 与多轮上下文**：在小布原生对话页面中直接渲染用户消息气泡与自定义模型回答卡片，并按当前会话（Room）维护多轮上下文。
+- **安全回退优先**：
+  - 模块启动时会校验小布包名、版本号及全部内部反射签名；若版本或方法结构不匹配，模块不会强行注入，保持小布原厂链路。
+  - 关闭模块总开关、未启用文本通道、未配置 Provider、或触发小布原生工具标签（`extra_box_toolTag`）及原生保护条件（服务开关、上传中、每日对话上限、全双工模式、特定模式及旅行计划状态）时，自动交回小布原厂处理。
+  - 回答请求异常或取消时会在卡片中反馈错误并恢复空闲状态，避免界面卡死。
 
-## 当前实现
+## 功能边界与未支持项
 
-- 模块使用独立包名 `io.github.xiaobuiswitch`，LSPosed 作用域指向 `com.heytap.speechassist`。
-- `BreenoHookEntry` 只在目标包和版本 `130403` 匹配时尝试接管；当前定位的文本提交方法为 `AIChatEngineHelper.y(String, int, Bundle, boolean, boolean)`。
-- 接管后复用小布原生的用户消息气泡、回答卡片和多轮上下文，并通过已有的 OpenAI 兼容 Provider 或 Codex 客户端请求回答。
-- 保留已识别的小布服务开关、上传状态、每日限制、全双工和旅行计划等保护条件；版本或方法校验不匹配时应保留原厂链路。
-- 目前只做文本回答适配。图片输入、手机控制、独立语音/TTS 链路尚未接入；语音识别后是否会经过同一文本入口也尚未验证。
+当前版本**仅适配小布文本对话**，以下上游小爱版功能**尚未接入或未验证**：
 
-## 文件入口
+- 图片输入 / 识图与绘图
+- 手机控制与系统工具
+- 独立语音识别 / TTS 播报与双工语音链路（语音转文字是否走同一文本提交入口尚未完整验证）
+- 非 `13.4.3 (130403)` 的其他小布版本
 
-- `app/src/main/java/io/github/xiaoaiswitch/BreenoHookEntry.java`：小布 Hook 入口和版本/方法校验。
-- `app/src/main/java/io/github/xiaoaiswitch/SettingsActivity.kt`、`AppUi.kt`：适配设置界面及名称。
-- `app/src/main/AndroidManifest.xml`、`app/src/main/assets/xposed_init`：模块标识、Provider URI 和 Xposed 入口声明。
-- `app/build.gradle`、`settings.gradle`：独立应用 ID 与适配版构建配置。
+## 兼容性与真机验证
 
-## 构建与安装
+| 项目 | 参数 |
+| --- | --- |
+| 模块包名 | `io.github.xiaobuiswitch` |
+| LSPosed 作用域 | `com.heytap.speechassist`（小布助手） |
+| 已适配小布版本 | `13.4.3`（`versionCode = 130403`） |
+| Android SDK | `minSdk 27` · `targetSdk 35` · `compileSdk 36` |
+| 模块框架 | LSPosed（最低声明 Xposed API 82） |
+| 构建工具链 | JDK 17 · Gradle 8.13 · AGP 8.13.2 · Kotlin 2.3.20 |
+| 真机验证环境 | `PKG110` · ColorOS `16.0.9.400(CN01)` · Android 16 · 小布 `13.4.3 (130403)` |
 
-需要 JDK 17、Android SDK Platform 36，以及可下载 Gradle 和 Android 依赖的网络环境：
+真机已验证项目：
+- LSPosed 注入与主进程过滤、14 个目标类/方法/字段签名校验、模块状态页激活回传。
+- 通过 `Codex 订阅` 进行小布原生对话界面文本问答并正常渲染原生回答卡片。
+- 模块与系统原厂链路的开关切换与安全回退。
 
-```sh
-./gradlew :app:assembleDebug
+> 提示：如果手机上同时启用了其他 Hook 小布对话入口的 LSPosed 模块，测试或使用时建议避免同时接管同一入口以免冲突。
+
+## 安装与配置
+
+1. 按下方「从源码构建」编译并安装 Debug APK（或安装自行构建的签名包）。
+2. 在 **LSPosed 管理器** 中启用 **小布 Switch**，确认作用域勾选 **小布助手**（`com.heytap.speechassist`）。
+3. 强行停止小布助手并重新打开一次小布，使其主进程加载模块。
+4. 打开 **小布 Switch**：
+   - 点击顶部状态卡片确认已显示 **已激活** 及 `已加载小布 13.4.3 文本 Hook`。
+   - 进入 **AI Provider**，添加 OpenAI 兼容 API 源或登录 Codex 订阅。
+   - 进入 **文本对话**，开启 **使用自定义服务**，选择 Provider、模型名称并按需填写 System Prompt，点击 **保存并立即应用**。
+   - 返回首页确认 **模块接管** 总开关已开启，即可在小布对话框直接提问。
+
+## 从源码构建
+
+需要 JDK 17、Android SDK Platform 36（`compileSdk 36`）以及可访问 Gradle/Maven 仓库的网络环境。
+
+```powershell
+git clone -b coloros-xiaobu https://github.com/hekinya/XiaoAiSwitch.git
+cd XiaoAiSwitch
+.\gradlew.bat test jacocoTestCoverageVerification :app:lintDebug :app:assembleDebug
 ```
 
-APK 输出位置：`app/build/outputs/apk/debug/app-debug.apk`。
+Linux / macOS 可将 `.\gradlew.bat` 替换为 `./gradlew`。
 
-安装后在 LSPosed 中启用“小布 Switch”，确认作用域包含 `com.heytap.speechassist`，重启小布进程，再打开模块配置 Provider 和文本模型并启用模块接管。模块状态页应显示识别到的 Breeno 版本或具体的不匹配原因。
+构建产物位置：`app/build/outputs/apk/debug/app-debug.apk`。
 
-## 验证状态与后续工作
+## 致谢与协议
 
-- 已运行 `git diff --check`，无空白错误。
-- 当前工作环境未完成 Android 编译或真机验证。先前构建尝试在下载 Gradle 8.13 时因网络受限失败，环境也未检测到 Android SDK；因此不能据此判断代码能否编译或 Hook 能否运行。
-- 后续接手时先检查当前分支改动，再按 [`CONTRIBUTING.md`](CONTRIBUTING.md) 执行上游要求的测试、覆盖率、Lint 和构建任务；构建通过后再在目标 ColorOS/Breeno 版本上验证 LSPosed 注入、原厂链路回退和原生回答卡片。
-- 若需重新核对私有实现签名，可使用用户提供的 Breeno 13.4.3 APK；该 APK 未提交到仓库。
-
-本分支当前是待验证的适配进度，不应当作已发布或已完成的 ColorOS 版本。
+- 上游项目：[SeimoDev/XiaoAiSwitch](https://github.com/SeimoDev/XiaoAiSwitch)（适配基线 `v0.10.12`）
+- 开源协议：[GPL-3.0-only](LICENSE)
